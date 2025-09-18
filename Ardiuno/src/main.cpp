@@ -12,8 +12,8 @@
 long motorSpeed = 80;         // Good speed for Arduino Mega
 long obstacleThreshold = 20;  // Distance threshold in cm
 long vacuumSpeed = 70;        // Higher speed for vacuum motor
-long mopSpeed = 170;          // Good speed for mop motor
-long pumpSpeed = 150;         // Good speed for pump motor
+long mopSpeed = 140;          // Good speed for mop motor
+long pumpSpeed =160;          // Good speed for pump motor
 
 // Robot mode state
 bool autoMode = false;  // Start in autonomous mode

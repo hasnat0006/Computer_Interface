@@ -1,0 +1,1005 @@
+\documentclass[12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage[margin=1in]{geometry}
+\usepackage{algorithm2e}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{hyperref}
+
+% Algorithm settings
+\SetKwComment{Comment}{$\triangleright$\ }{}
+\SetKwProg{Fn}{Function}{:}{}
+\SetKwProg{Proc}{Procedure}{:}{}
+\SetKwFor{For}{for}{do}{endfor}
+\SetKwIF{If}{ElseIf}{Else}{if}{then}{else if}{else}{endif}
+\SetKwRepeat{Do}{do}{while}
+
+\title{\textbf{Arduino Cleaning Robot System\\Algorithmic Documentation}}
+\author{Computer Interface Project}
+\date{September 17, 2025}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{System Overview}
+
+This document provides comprehensive algorithmic documentation for an autonomous Arduino-based cleaning robot system. The robot integrates multiple subsystems including motor control, sensor management, navigation logic, and wireless communication capabilities.
+
+\subsection{Hardware Components}
+\begin{itemize}
+    \item \textbf{Microcontroller:} Arduino Mega 2560
+    \item \textbf{Motors:} 3 L298N motor drivers controlling 5 motors total
+    \item \textbf{Sensors:} 5 ultrasonic sensors (HC-SR04)
+    \item \textbf{Communication:} HM-10 Bluetooth module
+    \item \textbf{Display:} 16x2 I2C LCD, RGB LED indicator
+\end{itemize}
+
+\section{Main Program Structure}
+
+\subsection{System Initialization}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{System Setup and Initialization}
+\Fn{\textsc{SystemSetup}()}{
+    \Comment{Initialize communication interfaces}
+    \textsc{InitializeSerial}(9600)\;
+    \textsc{InitializeBluetooth}(9600)\;
+    
+    \Comment{Initialize display and visual feedback}
+    \textsc{InitializeLCD}()\;
+    \textsc{SetRGBColor}(255, 0, 255)\; \Comment{Magenta startup indicator}
+    
+    \Comment{Configure hardware pins}
+    \For{each motor control pin}{
+        \textsc{SetPinMode}(pin, OUTPUT)\;
+    }
+    \For{each sensor pin}{
+        \textsc{SetPinMode}(trigger\_pin, OUTPUT)\;
+        \textsc{SetPinMode}(echo\_pin, INPUT)\;
+    }
+    \textsc{SetPinMode}(led\_pin, OUTPUT)\;
+    \textsc{SetPinMode}(rgb\_pins, OUTPUT)\;
+    
+    \Comment{Set initial states}
+    $motorSpeed \leftarrow 80$\;
+    $obstacleThreshold \leftarrow 20$\;
+    $autoMode \leftarrow false$\;
+    $vacuumEnabled \leftarrow false$\;
+    $mopEnabled \leftarrow false$\;
+    $pumpEnabled \leftarrow false$\;
+    
+    \textsc{StopAllMotors}()\;
+    \textsc{ShowSystemState}()\;
+    
+    \textsc{PrintStatus}("Arduino Cleaning Robot Started!")\;
+}
+\end{algorithm}
+
+\subsection{Main Control Loop}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Main System Control Loop}
+\Fn{\textsc{MainLoop}()}{
+    \While{system is running}{
+        \Comment{Handle command timeout for chunked data}
+        \If{$chunkBuffer.isActive$ \textbf{and} \textsc{IsChunkTimeout}()}{
+            \textsc{PrintLog}("Chunk timeout - resetting buffer")\;
+            \textsc{ResetChunkBuffer}()\;
+        }
+        
+        \Comment{Process incoming Bluetooth commands}
+        $tempCommand \leftarrow ""$\;
+        \While{\textsc{BluetoothDataAvailable}()}{
+            $c \leftarrow$ \textsc{ReadBluetoothChar}()\;
+            
+            \Comment{Check for chunked binary data}
+            \If{$|tempCommand| = 0$ \textbf{and} $(c = 0$ \textbf{or} $c = 1$ \textbf{or} $c = 2)$}{
+                $chunkData \leftarrow$ \textsc{ReadChunkPacket}(c)\;
+                \If{\textsc{ProcessChunkedData}(chunkData)}{
+                    $lastIdleTime \leftarrow$ \textsc{GetCurrentTime}()\;
+                }
+                \textbf{continue}\;
+            }
+            
+            $tempCommand \leftarrow tempCommand + c$\;
+            \textsc{Delay}(10)\; \Comment{Allow complete command arrival}
+            $lastIdleTime \leftarrow$ \textsc{GetCurrentTime}()\;
+        }
+        
+        \If{$|tempCommand| > 0$}{
+            \textsc{ProcessBLECommand}(tempCommand)\;
+            $lastIdleTime \leftarrow$ \textsc{GetCurrentTime}()\;
+        }
+        
+        \Comment{Idle state management}
+        \If{\textbf{not} $autoMode$ \textbf{and} \textsc{GetCurrentTime}() $- lastIdleTime > 30000$}{
+            \If{\textbf{not} $isIdle$}{
+                \textsc{ShowIdleState}()\;
+                $isIdle \leftarrow true$\;
+            }
+        }
+        \Else{
+            $isIdle \leftarrow false$\;
+        }
+        
+        \Comment{Execute autonomous navigation if enabled}
+        \If{$autoMode$}{
+            \textsc{AutonomousNavigation}()\;
+        }
+        
+        \textsc{Delay}(30)\; \Comment{Fast responsive loop}
+    }
+}
+\end{algorithm}
+
+\section{Communication System}
+
+\subsection{BLE Command Processing}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Bluetooth Command Processing}
+\Fn{\textsc{ProcessBLECommand}(command)}{
+    \textsc{PrintLog}("Processing command: " + command)\;
+    
+    \Comment{Check for JSON format commands}
+    \If{\textsc{IsValidJson}(command)}{
+        \textsc{ProcessJsonCommand}(command)\;
+        \textbf{return}\;
+    }
+    
+    \Comment{Legacy command processing}
+    $command \leftarrow$ \textsc{ToUpperCase}(command)\;
+    $currentCommand \leftarrow command$\;
+    \textsc{SendBluetoothResponse}("ACK:" + command)\;
+    
+    \Switch{command}{
+        \Case{"HELLO ARDUINO"}{
+            \textsc{SendBluetoothResponse}("Hello Flutter App!")\;
+        }
+        \Case{"TEST"}{
+            \textsc{SendBluetoothResponse}("TEST\_OK")\;
+        }
+        \Case{"V\_ON"}{
+            \textsc{StartVacuum}()\;
+            \textsc{ShowSystemState}()\;
+            \textsc{SendBluetoothResponse}("VACUUM\_ON")\;
+        }
+        \Case{"V\_OFF"}{
+            \textsc{StopVacuum}()\;
+            \textsc{ShowSystemState}()\;
+            \textsc{SendBluetoothResponse}("VACUUM\_OFF")\;
+        }
+        \Case{"M\_ON"}{
+            \textsc{StartMop}()\;
+            \textsc{ShowSystemState}()\;
+            \textsc{SendBluetoothResponse}("MOP\_ON")\;
+        }
+        \Case{"M\_OFF"}{
+            \textsc{StopMop}()\;
+            \textsc{ShowSystemState}()\;
+            \textsc{SendBluetoothResponse}("MOP\_OFF")\;
+        }
+        \Case{"P\_ON"}{
+            \textsc{StartPump}()\;
+            \textsc{ShowSystemState}()\;
+            \textsc{SendBluetoothResponse}("PUMP\_ON")\;
+        }
+        \Case{"P\_OFF"}{
+            \textsc{StopPump}()\;
+            \textsc{ShowSystemState}()\;
+            \textsc{SendBluetoothResponse}("PUMP\_OFF")\;
+        }
+        \Case{"AUTO"}{
+            $autoMode \leftarrow true$\;
+            \textsc{ShowSystemState}()\;
+            \textsc{SendBluetoothResponse}("AUTO\_MODE\_ON")\;
+        }
+        \Case{"MANUAL"}{
+            $autoMode \leftarrow false$\;
+            \textsc{StopMotors}()\;
+            \textsc{ShowSystemState}()\;
+            \textsc{SendBluetoothResponse}("MANUAL\_MODE\_ON")\;
+        }
+        \Case{"F"}{
+            \If{\textbf{not} $autoMode$}{
+                \textsc{MoveForward}()\;
+                \textsc{SendBluetoothResponse}("MOVING\_FORWARD")\;
+            }
+        }
+        \Case{"B"}{
+            \If{\textbf{not} $autoMode$}{
+                \textsc{MoveBackward}()\;
+                \textsc{SendBluetoothResponse}("MOVING\_BACKWARD")\;
+            }
+        }
+        \Case{"L"}{
+            \If{\textbf{not} $autoMode$}{
+                \textsc{TurnLeft}()\;
+                \textsc{SendBluetoothResponse}("TURNING\_LEFT")\;
+            }
+        }
+        \Case{"R"}{
+            \If{\textbf{not} $autoMode$}{
+                \textsc{TurnRight}()\;
+                \textsc{SendBluetoothResponse}("TURNING\_RIGHT")\;
+            }
+        }
+        \Case{"S"}{
+            \textsc{StopMotors}()\;
+            \textsc{SendBluetoothResponse}("STOPPED")\;
+        }
+        \Default{
+            \textsc{PrintLog}("Unknown command: " + command)\;
+            \textsc{SendBluetoothResponse}("UNKNOWN\_COMMAND:" + command)\;
+        }
+    }
+}
+\end{algorithm}
+
+\subsection{Chunked Data Processing}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Process Chunked Binary Data}
+\Fn{\textsc{ProcessChunkedData}(dataBytes, length)}{
+    \If{length $< 3$}{
+        \textbf{return} false\;
+    }
+    
+    $currentChunk \leftarrow dataBytes[0]$\;
+    $totalChunks \leftarrow dataBytes[1]$\;
+    $dataLength \leftarrow dataBytes[2]$\;
+    
+    \Comment{Extract actual command data}
+    $commandData \leftarrow$ \textsc{ExtractBytes}(dataBytes, 3, $3 + dataLength - 1$)\;
+    
+    \If{currentChunk $= 0$}{
+        \Comment{First chunk - initialize buffer}
+        \textsc{InitializeChunkBuffer}()\;
+        $chunkBuffer.totalChunks \leftarrow totalChunks$\;
+    }
+    
+    \textsc{AppendToBuffer}(chunkBuffer.data, commandData)\;
+    $chunkBuffer.currentChunk \leftarrow chunkBuffer.currentChunk + 1$\;
+    $chunkBuffer.lastChunkTime \leftarrow$ \textsc{GetCurrentTime}()\;
+    
+    \If{chunkBuffer.currentChunk $\geq$ chunkBuffer.totalChunks}{
+        $completeCommand \leftarrow$ \textsc{ReconstructFromBuffer}(chunkBuffer)\;
+        \textsc{ProcessBLECommand}(completeCommand)\;
+        \textsc{ResetChunkBuffer}()\;
+        \textbf{return} true\;
+    }
+    
+    \textbf{return} false\;
+}
+\end{algorithm}
+
+\section{Motor Control System}
+
+\subsection{Drive Motor Functions}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Stop All Drive Motors}
+\Fn{\textsc{StopMotors}()}{
+    \Comment{Stop main drive motors}
+    \textsc{SetDigitalPin}($in1$, LOW)\;
+    \textsc{SetDigitalPin}($in2$, LOW)\;
+    \textsc{SetDigitalPin}($in3$, LOW)\;
+    \textsc{SetDigitalPin}($in4$, LOW)\;
+    \textsc{SetPWMPin}($enA$, 0)\;
+    \textsc{SetPWMPin}($enB$, 0)\;
+    
+    \Comment{Restore full cleaning motor speeds when not driving}
+    \If{vacuumEnabled}{
+        \textsc{SetPWMPin}($enC$, vacuumSpeed)\;
+    }
+    \If{mopEnabled}{
+        \textsc{SetPWMPin}($enD$, mopSpeed)\;
+    }
+    \If{pumpEnabled}{
+        \textsc{SetPWMPin}($enE$, pumpSpeed)\;
+    }
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Move Robot Forward}
+\Fn{\textsc{MoveForward}()}{
+    \Comment{Reduce cleaning motor speeds to save power during movement}
+    \If{vacuumEnabled}{
+        \textsc{SetPWMPin}($enC$, $vacuumSpeed \times 0.8$)\;
+    }
+    \If{mopEnabled}{
+        \textsc{SetPWMPin}($enD$, $mopSpeed \times 0.7$)\;
+    }
+    \If{pumpEnabled}{
+        \textsc{SetPWMPin}($enE$, $pumpSpeed \times 0.7$)\;
+    }
+    
+    \Comment{Set drive motors for forward motion}
+    \textsc{SetPWMPin}($enA$, motorSpeed)\;
+    \textsc{SetPWMPin}($enB$, motorSpeed)\;
+    \textsc{SetDigitalPin}($in1$, LOW)\;
+    \textsc{SetDigitalPin}($in2$, HIGH)\;
+    \textsc{SetDigitalPin}($in3$, LOW)\;
+    \textsc{SetDigitalPin}($in4$, HIGH)\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Move Robot Backward}
+\Fn{\textsc{MoveBackward}()}{
+    \Comment{Reduce cleaning motor speeds during movement}
+    \If{vacuumEnabled}{
+        \textsc{SetPWMPin}($enC$, $vacuumSpeed \times 0.8$)\;
+    }
+    \If{mopEnabled}{
+        \textsc{SetPWMPin}($enD$, $mopSpeed \times 0.7$)\;
+    }
+    \If{pumpEnabled}{
+        \textsc{SetPWMPin}($enE$, $pumpSpeed \times 0.7$)\;
+    }
+    
+    \Comment{Set drive motors for backward motion}
+    \textsc{SetPWMPin}($enA$, motorSpeed)\;
+    \textsc{SetPWMPin}($enB$, motorSpeed)\;
+    \textsc{SetDigitalPin}($in1$, HIGH)\;
+    \textsc{SetDigitalPin}($in2$, LOW)\;
+    \textsc{SetDigitalPin}($in3$, HIGH)\;
+    \textsc{SetDigitalPin}($in4$, LOW)\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Turn Robot Left}
+\Fn{\textsc{TurnLeft}()}{
+    \Comment{Further reduce cleaning motor speeds during turns}
+    \If{vacuumEnabled}{
+        \textsc{SetPWMPin}($enC$, $vacuumSpeed \times 0.7$)\;
+    }
+    \If{mopEnabled}{
+        \textsc{SetPWMPin}($enD$, $mopSpeed \times 0.6$)\;
+    }
+    \If{pumpEnabled}{
+        \textsc{SetPWMPin}($enE$, $pumpSpeed \times 0.6$)\;
+    }
+    
+    \Comment{Differential drive: left motor backward, right motor forward}
+    \textsc{SetPWMPin}($enA$, $motorSpeed \times 1.15$)\;
+    \textsc{SetPWMPin}($enB$, $motorSpeed \times 1.15$)\;
+    \textsc{SetDigitalPin}($in1$, HIGH)\; \Comment{Left motor backward}
+    \textsc{SetDigitalPin}($in2$, LOW)\;
+    \textsc{SetDigitalPin}($in3$, LOW)\; \Comment{Right motor forward}
+    \textsc{SetDigitalPin}($in4$, HIGH)\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Turn Robot Right}
+\Fn{\textsc{TurnRight}()}{
+    \Comment{Further reduce cleaning motor speeds during turns}
+    \If{vacuumEnabled}{
+        \textsc{SetPWMPin}($enC$, $vacuumSpeed \times 0.7$)\;
+    }
+    \If{mopEnabled}{
+        \textsc{SetPWMPin}($enD$, $mopSpeed \times 0.6$)\;
+    }
+    \If{pumpEnabled}{
+        \textsc{SetPWMPin}($enE$, $pumpSpeed \times 0.6$)\;
+    }
+    
+    \Comment{Differential drive: left motor forward, right motor backward}
+    \textsc{SetPWMPin}($enA$, $motorSpeed \times 1.15$)\;
+    \textsc{SetPWMPin}($enB$, $motorSpeed \times 1.15$)\;
+    \textsc{SetDigitalPin}($in1$, LOW)\; \Comment{Left motor forward}
+    \textsc{SetDigitalPin}($in2$, HIGH)\;
+    \textsc{SetDigitalPin}($in3$, HIGH)\; \Comment{Right motor backward}
+    \textsc{SetDigitalPin}($in4$, LOW)\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Execute 180-Degree Turn}
+\Fn{\textsc{Turn180Degrees}()}{
+    \textsc{UpdateLCD}("TURN AROUND", 0, 0, 0, 0, 0)\;
+    \textsc{SetRGBColor}(255, 0, 255)\; \Comment{Magenta for emergency maneuver}
+    \textsc{TurnRight}()\;
+    \textsc{Delay}(2000)\; \Comment{Turn duration for approximately 180°}
+    \textsc{StopMotors}()\;
+    \textsc{ShowSystemState}()\;
+}
+\end{algorithm}
+
+\subsection{Cleaning Motor Functions}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Start Vacuum Motor}
+\Fn{\textsc{StartVacuum}()}{
+    $vacuumEnabled \leftarrow true$\;
+    \textsc{SetDigitalPin}($in5$, LOW)\;
+    \textsc{SetDigitalPin}($in6$, HIGH)\; \Comment{Set direction}
+    \textsc{SetPWMPin}($enC$, vacuumSpeed)\;
+    \textsc{PrintLog}("Vacuum motor started")\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Stop Vacuum Motor}
+\Fn{\textsc{StopVacuum}()}{
+    $vacuumEnabled \leftarrow false$\;
+    \textsc{SetPWMPin}($enC$, 0)\;
+    \textsc{SetDigitalPin}($in5$, LOW)\;
+    \textsc{SetDigitalPin}($in6$, LOW)\;
+    \textsc{PrintLog}("Vacuum motor stopped")\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Start Mop Motor}
+\Fn{\textsc{StartMop}()}{
+    $mopEnabled \leftarrow true$\;
+    \textsc{SetDigitalPin}($in7$, LOW)\;
+    \textsc{SetDigitalPin}($in8$, HIGH)\; \Comment{Set direction}
+    \textsc{SetPWMPin}($enD$, mopSpeed)\;
+    \textsc{PrintLog}("Mop motor started")\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Stop Mop Motor}
+\Fn{\textsc{StopMop}()}{
+    $mopEnabled \leftarrow false$\;
+    \textsc{SetPWMPin}($enD$, 0)\;
+    \textsc{SetDigitalPin}($in7$, LOW)\;
+    \textsc{SetDigitalPin}($in8$, LOW)\;
+    \textsc{PrintLog}("Mop motor stopped")\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Start Pump Motor}
+\Fn{\textsc{StartPump}()}{
+    $pumpEnabled \leftarrow true$\;
+    \textsc{SetDigitalPin}($in9$, LOW)\;
+    \textsc{SetDigitalPin}($in10$, HIGH)\; \Comment{Set direction}
+    \textsc{SetPWMPin}($enE$, pumpSpeed)\;
+    \textsc{PrintLog}("Pump motor started")\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Stop Pump Motor}
+\Fn{\textsc{StopPump}()}{
+    $pumpEnabled \leftarrow false$\;
+    \textsc{SetPWMPin}($enE$, 0)\;
+    \textsc{SetDigitalPin}($in9$, LOW)\;
+    \textsc{SetDigitalPin}($in10$, LOW)\;
+    \textsc{PrintLog}("Pump motor stopped")\;
+}
+\end{algorithm}
+
+\section{Sensor System}
+
+\subsection{Ultrasonic Distance Measurement}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Measure Distance Using Ultrasonic Sensor}
+\Fn{\textsc{GetDistance}(triggerPin, echoPin)}{
+    \Comment{Send ultrasonic pulse}
+    \textsc{SetDigitalPin}(triggerPin, LOW)\;
+    \textsc{DelayMicroseconds}(2)\;
+    \textsc{SetDigitalPin}(triggerPin, HIGH)\;
+    \textsc{DelayMicroseconds}(10)\;
+    \textsc{SetDigitalPin}(triggerPin, LOW)\;
+    
+    \Comment{Measure echo duration}
+    $duration \leftarrow$ \textsc{PulseIn}(echoPin, HIGH)\;
+    
+    \Comment{Calculate distance in centimeters}
+    $distance \leftarrow \frac{duration \times 0.034}{2}$\;
+    
+    \textbf{return} distance\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Get Front Sensor Distance}
+\Fn{\textsc{GetFrontDistance}()}{
+    \textbf{return} \textsc{GetDistance}(frontTrigPin, frontEchoPin)\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Detect Front Obstacle}
+\Fn{\textsc{GetFrontIRObstacle}()}{
+    $distance \leftarrow$ \textsc{GetFrontDistance}()\;
+    \textbf{return} $(distance < obstacleThreshold)$\;
+}
+\end{algorithm}
+
+\section{Navigation System}
+
+\subsection{Autonomous Navigation Logic}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Autonomous Navigation Control}
+\Fn{\textsc{AutonomousNavigation}()}{
+    \Comment{Initialize static variables for sensor readings}
+    \textbf{static} $leftDistance \leftarrow 0$\;
+    \textbf{static} $rightDistance \leftarrow 0$\;
+    \textbf{static} $frontDistance \leftarrow 0$\;
+    \textbf{static} $frontLeftDistance \leftarrow 0$\;
+    \textbf{static} $frontRightDistance \leftarrow 0$\;
+    
+    \Comment{Read front sensors for immediate obstacle detection}
+    $frontObstacle \leftarrow$ \textsc{GetFrontIRObstacle}()\;
+    $frontDistance \leftarrow$ \textsc{GetFrontDistance}()\;
+    
+    \Comment{Always check front corner sensors}
+    $frontLeftDistance \leftarrow$ \textsc{GetDistance}(frontLeftTrigPin, frontLeftEchoPin)\;
+    \textsc{Delay}(20)\;
+    $frontRightDistance \leftarrow$ \textsc{GetDistance}(frontRightTrigPin, frontRightEchoPin)\;
+    \textsc{Delay}(20)\;
+    
+    \Comment{Determine front obstacle status}
+    $frontLeftObstacle \leftarrow (frontLeftDistance < obstacleThreshold)$\;
+    $frontRightObstacle \leftarrow (frontRightDistance < obstacleThreshold)$\;
+    
+    \Comment{Check if all front sensors are clear}
+    $allFrontClear \leftarrow \neg(frontObstacle \lor frontLeftObstacle \lor frontRightObstacle)$\;
+    
+    \Comment{Periodically check side sensors for awareness}
+    \textbf{static} $sensorCheckCounter \leftarrow 0$\;
+    $sensorCheckCounter \leftarrow sensorCheckCounter + 1$\;
+    
+    \If{$sensorCheckCounter \geq 5$}{
+        $leftDistance \leftarrow$ \textsc{GetDistance}(leftTrigPin, leftEchoPin)\;
+        \textsc{Delay}(20)\;
+        $rightDistance \leftarrow$ \textsc{GetDistance}(rightTrigPin, rightEchoPin)\;
+        \textsc{Delay}(20)\;
+        $sensorCheckCounter \leftarrow 0$\;
+    }
+    
+    \If{allFrontClear}{
+        \Comment{Check for side sensor collisions}
+        $leftCollision \leftarrow (leftDistance \leq 5)$\;
+        $rightCollision \leftarrow (rightDistance \leq 5)$\;
+        
+        \If{$leftCollision \land \neg rightCollision$}{
+            \Comment{Left side collision - turn RIGHT to move away}
+            \textsc{SetDigitalPin}(ledPin, HIGH)\;
+            \textsc{SetRGBColor}(255, 255, 0)\; \Comment{Yellow - Side collision}
+            \textsc{UpdateLCD}("LEFT COLLISION", leftDistance, rightDistance, frontDistance, frontLeftDistance, frontRightDistance)\;
+            \textsc{StopMotors}()\;
+            \textsc{TurnRight}()\;
+            \textsc{Delay}(300)\;
+            \textsc{StopMotors}()\;
+        }
+        \ElseIf{$rightCollision \land \neg leftCollision$}{
+            \Comment{Right side collision - turn LEFT to move away}
+            \textsc{SetDigitalPin}(ledPin, HIGH)\;
+            \textsc{SetRGBColor}(255, 255, 0)\; \Comment{Yellow - Side collision}
+            \textsc{UpdateLCD}("RIGHT COLLISION", leftDistance, rightDistance, frontDistance, frontLeftDistance, frontRightDistance)\;
+            \textsc{StopMotors}()\;
+            \textsc{TurnLeft}()\;
+            \textsc{Delay}(300)\;
+            \textsc{StopMotors}()\;
+        }
+        \ElseIf{$leftCollision \land rightCollision$}{
+            \Comment{Both sides collision - back up}
+            \textsc{SetDigitalPin}(ledPin, HIGH)\;
+            \textsc{SetRGBColor}(255, 0, 255)\; \Comment{Magenta - Both sides collision}
+            \textsc{UpdateLCD}("BOTH COLLISION", leftDistance, rightDistance, frontDistance, frontLeftDistance, frontRightDistance)\;
+            \textsc{StopMotors}()\;
+            \textsc{MoveBackward}()\;
+            \textsc{Delay}(500)\;
+            \textsc{StopMotors}()\;
+        }
+        \Else{
+            \Comment{All front sensors clear and no side collisions - safe to move forward}
+            \textsc{SetDigitalPin}(ledPin, LOW)\;
+            \textsc{SetRGBColor}(0, 255, 0)\; \Comment{Green - Path clear}
+            \textsc{UpdateLCD}("FORWARD", leftDistance, rightDistance, frontDistance, frontLeftDistance, frontRightDistance)\;
+            \textsc{MoveForward}()\;
+        }
+    }
+    \Else{
+        \Comment{One or more front sensors blocked - determine turning direction}
+        \textsc{SetDigitalPin}(ledPin, HIGH)\;
+        \textsc{SetRGBColor}(255, 0, 0)\; \Comment{Red - Obstacle detected}
+        \textsc{StopMotors}()\;
+        
+        \Comment{Determine best turning direction based on sensor readings}
+        \If{frontObstacle}{
+            \Comment{Front sensor blocked - check sides}
+            \If{$frontLeftObstacle \land \neg frontRightObstacle$}{
+                \Comment{Front and front-left blocked, front-right clear - turn RIGHT}
+                \textsc{UpdateLCD}("TURN RIGHT", leftDistance, rightDistance, frontDistance, frontLeftDistance, frontRightDistance)\;
+                \textsc{TurnRight}()\;
+                \textsc{Delay}(400)\;
+                \textsc{StopMotors}()\;
+            }
+            \ElseIf{$frontRightObstacle \land \neg frontLeftObstacle$}{
+                \Comment{Front and front-right blocked, front-left clear - turn LEFT}
+                \textsc{UpdateLCD}("TURN LEFT", leftDistance, rightDistance, frontDistance, frontLeftDistance, frontRightDistance)\;
+                \textsc{TurnLeft}()\;
+                \textsc{Delay}(400)\;
+                \textsc{StopMotors}()\;
+            }
+            \ElseIf{$frontLeftObstacle \land frontRightObstacle$}{
+                \Comment{All three front sensors blocked - DEAD END}
+                \textsc{Turn180Degrees}()\;
+            }
+            \Else{
+                \Comment{Only front sensor blocked, sides clear - turn toward clearer side}
+                \If{$frontLeftDistance > frontRightDistance$}{
+                    \textsc{TurnLeft}()\;
+                    \textsc{Delay}(300)\;
+                    \textsc{StopMotors}()\;
+                }
+                \Else{
+                    \textsc{TurnRight}()\;
+                    \textsc{Delay}(300)\;
+                    \textsc{StopMotors}()\;
+                }
+            }
+        }
+        \ElseIf{frontLeftObstacle}{
+            \Comment{Only front-left blocked - turn RIGHT}
+            \textsc{UpdateLCD}("TURN RIGHT", leftDistance, rightDistance, frontDistance, frontLeftDistance, frontRightDistance)\;
+            \textsc{TurnRight}()\;
+            \textsc{Delay}(300)\;
+            \textsc{StopMotors}()\;
+        }
+        \ElseIf{frontRightObstacle}{
+            \Comment{Only front-right blocked - turn LEFT}
+            \textsc{UpdateLCD}("TURN LEFT", leftDistance, rightDistance, frontDistance, frontLeftDistance, frontRightDistance)\;
+            \textsc{TurnLeft}()\;
+            \textsc{Delay}(300)\;
+            \textsc{StopMotors}()\;
+        }
+    }
+}
+\end{algorithm}
+
+\subsection{Enhanced Obstacle Avoidance}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Advanced Obstacle Avoidance Strategy}
+\Fn{\textsc{AvoidObstacle}()}{
+    \textsc{UpdateLCD}("OBSTACLE!", 0, 0, 0, 0, 0)\;
+    \textsc{StopMotors}()\;
+    \textsc{Delay}(500)\;
+    
+    \Comment{Read all 5 ultrasonic sensors}
+    $leftDistance \leftarrow$ \textsc{GetDistance}(leftTrigPin, leftEchoPin)\;
+    \textsc{Delay}(50)\;
+    $rightDistance \leftarrow$ \textsc{GetDistance}(rightTrigPin, rightEchoPin)\;
+    \textsc{Delay}(50)\;
+    $frontDistance \leftarrow$ \textsc{GetFrontDistance}()\;
+    \textsc{Delay}(50)\;
+    $frontLeftDistance \leftarrow$ \textsc{GetDistance}(frontLeftTrigPin, frontLeftEchoPin)\;
+    \textsc{Delay}(50)\;
+    $frontRightDistance \leftarrow$ \textsc{GetDistance}(frontRightTrigPin, frontRightEchoPin)\;
+    \textsc{Delay}(50)\;
+    
+    \Comment{Update display with sensor readings}
+    \textsc{UpdateLCD}("OBSTACLE!", leftDistance, rightDistance, frontDistance, frontLeftDistance, frontRightDistance)\;
+    \textsc{Delay}(1000)\;
+    
+    \Comment{Enhanced decision making based on all sensors}
+    \If{$(leftDistance > obstacleThreshold) \land (frontLeftDistance > obstacleThreshold)$}{
+        \Comment{Left side is clear - turn LEFT}
+        \textsc{UpdateLCD}("TURNING LEFT", leftDistance, rightDistance, frontDistance, frontLeftDistance, frontRightDistance)\;
+        \textsc{TurnLeft}()\;
+        \textsc{Delay}(500)\;
+        \textsc{StopMotors}()\;
+    }
+    \ElseIf{$(rightDistance > obstacleThreshold) \land (frontRightDistance > obstacleThreshold)$}{
+        \Comment{Right side is clear - turn RIGHT}
+        \textsc{UpdateLCD}("TURNING RIGHT", leftDistance, rightDistance, frontDistance, frontLeftDistance, frontRightDistance)\;
+        \textsc{TurnRight}()\;
+        \textsc{Delay}(500)\;
+        \textsc{StopMotors}()\;
+    }
+    \ElseIf{$(frontLeftDistance > frontRightDistance) \land (frontLeftDistance > obstacleThreshold)$}{
+        \Comment{Front-left is clearer - turn LEFT}
+        \textsc{UpdateLCD}("TURNING LEFT", leftDistance, rightDistance, frontDistance, frontLeftDistance, frontRightDistance)\;
+        \textsc{TurnLeft}()\;
+        \textsc{Delay}(500)\;
+        \textsc{StopMotors}()\;
+    }
+    \ElseIf{$(frontRightDistance > frontLeftDistance) \land (frontRightDistance > obstacleThreshold)$}{
+        \Comment{Front-right is clearer - turn RIGHT}
+        \textsc{UpdateLCD}("TURNING RIGHT", leftDistance, rightDistance, frontDistance, frontLeftDistance, frontRightDistance)\;
+        \textsc{TurnRight}()\;
+        \textsc{Delay}(500)\;
+        \textsc{StopMotors}()\;
+    }
+    \Else{
+        \Comment{All sides blocked - emergency maneuver}
+        \textsc{UpdateLCD}("BACKING UP", leftDistance, rightDistance, frontDistance, frontLeftDistance, frontRightDistance)\;
+        \textsc{MoveBackward}()\;
+        \textsc{Delay}(500)\;
+        \textsc{StopMotors}()\;
+        \textsc{Delay}(500)\;
+        
+        \textsc{UpdateLCD}("TURN AROUND", 0, 0, 0, 0, 0)\;
+        \textsc{TurnRight}()\;
+        \textsc{Delay}(2000)\;
+        \textsc{StopMotors}()\;
+    }
+}
+\end{algorithm}
+
+\section{Visual Feedback System}
+
+\subsection{RGB LED Status Indicators}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Set RGB LED Color}
+\Fn{\textsc{SetRGBColor}(redValue, greenValue, blueValue)}{
+    \textsc{SetPWMPin}(rgbRedPin, redValue)\;
+    \textsc{SetPWMPin}(rgbGreenPin, greenValue)\;
+    \textsc{SetPWMPin}(rgbBluePin, blueValue)\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Display Current System State}
+\Fn{\textsc{ShowSystemState}()}{
+    $anyCleaningActive \leftarrow (vacuumEnabled \lor mopEnabled \lor pumpEnabled)$\;
+    
+    \If{anyCleaningActive}{
+        \If{autoMode}{
+            \textsc{SetRGBColor}(0, 255, 255)\; \Comment{Cyan - auto mode + cleaning active}
+        }
+        \Else{
+            \textsc{SetRGBColor}(0, 0, 255)\; \Comment{Blue - manual mode + cleaning active}
+        }
+    }
+    \Else{
+        \If{autoMode}{
+            \textsc{SetRGBColor}(0, 255, 0)\; \Comment{Green - auto mode + cleaning inactive}
+        }
+        \Else{
+            \textsc{SetRGBColor}(255, 255, 255)\; \Comment{White - manual mode + cleaning inactive}
+        }
+    }
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Show Obstacle Direction Indicator}
+\Fn{\textsc{ShowObstacleDirection}(leftObs, frontLeftObs, frontObs, frontRightObs, rightObs)}{
+    \If{frontObs}{
+        \textsc{SetRGBColor}(255, 0, 0)\; \Comment{Red - front obstacle}
+    }
+    \ElseIf{$leftObs \lor frontLeftObs$}{
+        \textsc{SetRGBColor}(255, 165, 0)\; \Comment{Orange - left side obstacle}
+    }
+    \ElseIf{$rightObs \lor frontRightObs$}{
+        \textsc{SetRGBColor}(255, 255, 0)\; \Comment{Yellow - right side obstacle}
+    }
+    \Else{
+        \textsc{SetRGBColor}(0, 255, 0)\; \Comment{Green - path clear}
+    }
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Display Idle State Animation}
+\Fn{\textsc{ShowIdleState}()}{
+    \For{$i \leftarrow 0$ \textbf{to} 10}{
+        $brightness \leftarrow \frac{i \times 25}{1}$\; \Comment{Gradually increase brightness}
+        \textsc{SetRGBColor}(0, 0, brightness)\;
+        \textsc{Delay}(100)\;
+    }
+    \For{$i \leftarrow 10$ \textbf{down to} 0}{
+        $brightness \leftarrow \frac{i \times 25}{1}$\; \Comment{Gradually decrease brightness}
+        \textsc{SetRGBColor}(0, 0, brightness)\;
+        \textsc{Delay}(100)\;
+    }
+    \textsc{UpdateLCD}("IDLE MODE", 0, 0, 0, 0, 0)\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Display Error State}
+\Fn{\textsc{ShowErrorState}()}{
+    \For{$i \leftarrow 0$ \textbf{to} 5}{
+        \textsc{SetRGBColor}(255, 0, 0)\; \Comment{Red}
+        \textsc{Delay}(200)\;
+        \textsc{SetRGBColor}(0, 0, 0)\; \Comment{Off}
+        \textsc{Delay}(200)\;
+    }
+}
+\end{algorithm}
+
+\subsection{LCD Display Functions}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Initialize LCD Display}
+\Fn{\textsc{InitializeLCD}()}{
+    \textsc{InitializeI2CLCD}(0x27)\; \Comment{I2C address}
+    \textsc{SetLCDDimensions}(16, 2)\; \Comment{16 columns, 2 rows}
+    \textsc{TurnOnLCDBacklight}()\;
+    \textsc{ClearLCDScreen}()\;
+    \textsc{DisplayLCDText}("System Starting...", 1)\; \Comment{Line 1}
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Update LCD with System Status}
+\Fn{\textsc{UpdateLCD}(status, leftDist, rightDist, frontDist, frontLeftDist, frontRightDist)}{
+    \textsc{ClearLCDScreen}()\;
+    
+    \Comment{Line 1: Status and front sensor}
+    $line1 \leftarrow status + " F:" + \textsc{ToString}(frontDist)$\;
+    \textsc{DisplayLCDText}(line1, 1)\;
+    
+    \Comment{Line 2: Side sensors}
+    $line2 \leftarrow "L:" + \textsc{ToString}(leftDist) + " R:" + \textsc{ToString}(rightDist)$\;
+    \textsc{DisplayLCDText}(line2, 2)\;
+}
+\end{algorithm}
+
+\section{System Configuration}
+
+\subsection{Hardware Constants and Variables}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{System Configuration Constants}
+\Proc{\textsc{SystemConstants}()}{
+    \Comment{Motor Speed Configuration (PWM values 0-255)}
+    $motorSpeed \leftarrow 80$\; \Comment{Drive motor speed}
+    $vacuumSpeed \leftarrow 70$\; \Comment{Vacuum motor speed}
+    $mopSpeed \leftarrow 170$\; \Comment{Mop motor speed}
+    $pumpSpeed \leftarrow 150$\; \Comment{Pump motor speed}
+    
+    \Comment{Sensor Configuration}
+    $obstacleThreshold \leftarrow 20$\; \Comment{Distance in cm to consider obstacle}
+    
+    \Comment{Timing Constants}
+    $chunkTimeoutMS \leftarrow 5000$\; \Comment{BLE command chunk timeout}
+    $idleCheckInterval \leftarrow 30000$\; \Comment{Idle state check interval}
+    
+    \Comment{Pin Assignments - Drive Motors (L298N \#1)}
+    $leftMotorEN \leftarrow 2$, $leftMotorIN1 \leftarrow 22$, $leftMotorIN2 \leftarrow 23$\;
+    $rightMotorEN \leftarrow 3$, $rightMotorIN3 \leftarrow 24$, $rightMotorIN4 \leftarrow 25$\;
+    
+    \Comment{Pin Assignments - Vacuum Motor (L298N \#2)}
+    $vacuumEN \leftarrow 4$, $vacuumIN1 \leftarrow 26$, $vacuumIN2 \leftarrow 27$\;
+    
+    \Comment{Pin Assignments - Mop and Pump Motors (L298N \#3)}
+    $mopEN \leftarrow 5$, $mopIN1 \leftarrow 28$, $mopIN2 \leftarrow 29$\;
+    $pumpEN \leftarrow 9$, $pumpIN1 \leftarrow 30$, $pumpIN2 \leftarrow 31$\;
+    
+    \Comment{Pin Assignments - Sensors (5 Ultrasonic Sensors)}
+    $leftTrig \leftarrow 32$, $leftEcho \leftarrow 33$\;
+    $rightTrig \leftarrow 34$, $rightEcho \leftarrow 35$\;
+    $frontTrig \leftarrow 36$, $frontEcho \leftarrow 37$\;
+    $frontLeftTrig \leftarrow 38$, $frontLeftEcho \leftarrow 39$\;
+    $frontRightTrig \leftarrow 40$, $frontRightEcho \leftarrow 41$\;
+    
+    \Comment{Pin Assignments - Visual Feedback}
+    $ledPin \leftarrow 13$\;
+    $rgbRedPin \leftarrow 6$, $rgbGreenPin \leftarrow 7$, $rgbBluePin \leftarrow 8$\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Global System Variables}
+\Proc{\textsc{GlobalVariables}()}{
+    \Comment{System State Variables}
+    $autoMode \leftarrow false$\; \Comment{Robot operation mode}
+    $currentCommand \leftarrow ""$\; \Comment{Last received command}
+    $vacuumEnabled \leftarrow false$\; \Comment{Vacuum motor state}
+    $mopEnabled \leftarrow false$\; \Comment{Mop motor state}
+    $pumpEnabled \leftarrow false$\; \Comment{Pump motor state}
+    $lastIdleTime \leftarrow 0$\; \Comment{For idle state detection}
+    $isIdle \leftarrow false$\; \Comment{Current idle status}
+    
+    \Comment{Command Chunking Buffer Structure}
+    $chunkBuffer.data \leftarrow ""$\;
+    $chunkBuffer.currentChunk \leftarrow 0$\;
+    $chunkBuffer.totalChunks \leftarrow 0$\;
+    $chunkBuffer.isActive \leftarrow false$\;
+    $chunkBuffer.lastChunkTime \leftarrow 0$\;
+}
+\end{algorithm}
+
+\section{Conclusion}
+
+This comprehensive algorithmic documentation provides a complete specification for the Arduino-based autonomous cleaning robot system. The algorithms cover all major subsystems including:
+
+\begin{itemize}
+    \item \textbf{Main Control System:} System initialization and main control loop
+    \item \textbf{Communication System:} Bluetooth command processing with chunked data support
+    \item \textbf{Motor Control:} Drive motors and cleaning motors with intelligent power management
+    \item \textbf{Sensor System:} Multi-sensor obstacle detection using 5 ultrasonic sensors
+    \item \textbf{Navigation System:} Advanced autonomous navigation with sophisticated obstacle avoidance
+    \item \textbf{Visual Feedback:} RGB LED status indicators and LCD display management
+    \item \textbf{System Configuration:} Hardware constants and global variable management
+\end{itemize}
+
+The robot demonstrates advanced capabilities including:
+\begin{itemize}
+    \item Real-time obstacle detection and avoidance using multiple sensors
+    \item Intelligent power management during different operational modes
+    \item Comprehensive visual feedback system for status indication
+    \item Robust communication protocol with error handling
+    \item Autonomous navigation with emergency maneuver capabilities
+    \item Coordinated control of multiple motor systems
+\end{itemize}
+
+This algorithmic framework serves as a complete reference for understanding, implementing, or extending the cleaning robot system functionality.
+
+\end{document}

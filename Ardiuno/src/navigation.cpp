@@ -23,64 +23,54 @@ void avoidObstacle() {
   int frontRightDistance = getDistance(frontRightTrigPin, frontRightEchoPin);
   delay(50);
 
-  // Update LCD with actual sensor readings
-  updateLCD("OBSTACLE!", leftDistance, rightDistance, frontDistance,
-            frontLeftDistance, frontRightDistance);
-  delay(1000);  // Show readings for a moment
-
   // Enhanced decision making based on all sensors
   // Check if left side is clear (both left and front-left)
   if (leftDistance > obstacleThreshold &&
       frontLeftDistance > obstacleThreshold) {
-    updateLCD("TURNING LEFT", leftDistance, rightDistance, frontDistance,
-              frontLeftDistance, frontRightDistance);
+    // TURNING LEFT
     turnLeft();
-    delay(500);
+    delay(300);
     stopMotors();
     return;
   }
   // Check if right side is clear (both right and front-right)
   else if (rightDistance > obstacleThreshold &&
            frontRightDistance > obstacleThreshold) {
-    updateLCD("TURNING RIGHT", leftDistance, rightDistance, frontDistance,
-              frontLeftDistance, frontRightDistance);
+    // TURNING RIGHT
     turnRight();
-    delay(500);
+    delay(300);
     stopMotors();
     return;
   }
   // If front-left is clearer than front-right, turn left
   else if (frontLeftDistance > frontRightDistance &&
            frontLeftDistance > obstacleThreshold) {
-    updateLCD("TURNING LEFT", leftDistance, rightDistance, frontDistance,
-              frontLeftDistance, frontRightDistance);
+    // TURNING LEFT
     turnLeft();
-    delay(500);
+    delay(300);
     stopMotors();
     return;
   }
   // If front-right is clearer than front-left, turn right
   else if (frontRightDistance > frontLeftDistance &&
            frontRightDistance > obstacleThreshold) {
-    updateLCD("TURNING RIGHT", leftDistance, rightDistance, frontDistance,
-              frontLeftDistance, frontRightDistance);
+    // TURNING RIGHT
     turnRight();
-    delay(500);
+    delay(300);
     stopMotors();
     return;
   } else {
     // All sides blocked, move backward and try again
-    updateLCD("BACKING UP", leftDistance, rightDistance, frontDistance,
-              frontLeftDistance, frontRightDistance);
+    // BACKING UP
     moveBackward();
-    delay(500);
+    delay(300);
     stopMotors();
-    delay(500);
+    delay(300);
 
     // Try turning around
-    updateLCD("TURN AROUND", 0, 0, 0, 0, 0);
+    // TURN AROUND
     turnRight();
-    delay(2000);
+    delay(1500);
     stopMotors();
     return;
   }
@@ -132,39 +122,39 @@ void autonomousNavigation() {
       // Left side collision - turn RIGHT to move away
       digitalWrite(ledPin, HIGH);
       setRGBColor(255, 255, 0);  // YELLOW - Side collision
-      updateLCD("LEFT COLLISION", leftDistance, rightDistance, frontDistance,
-                frontLeftDistance, frontRightDistance);
+      // updateLCD("LEFT COLLISION", leftDistance, rightDistance, frontDistance,
+      //           frontLeftDistance, frontRightDistance);
       stopMotors();
       turnRight();
-      delay(300);  // Turn longer to clear the collision
+      delay(100);  // Reduced rotation to avoid over-turning
       stopMotors();
     } else if (rightCollision && !leftCollision) {
       // Right side collision - turn LEFT to move away
       digitalWrite(ledPin, HIGH);
       setRGBColor(255, 255, 0);  // YELLOW - Side collision
-      updateLCD("RIGHT COLLISION", leftDistance, rightDistance, frontDistance,
-                frontLeftDistance, frontRightDistance);
+      // updateLCD("RIGHT COLLISION", leftDistance, rightDistance, frontDistance,
+      //           frontLeftDistance, frontRightDistance);
       stopMotors();
       turnLeft();
-      delay(300);  // Turn longer to clear the collision
+      delay(100);  // Reduced rotation to avoid over-turning
       stopMotors();
     } else if (leftCollision && rightCollision) {
       // Both sides collision - back up
       digitalWrite(ledPin, HIGH);
       setRGBColor(255, 0, 255);  // MAGENTA - Both sides collision
-      updateLCD("BOTH COLLISION", leftDistance, rightDistance, frontDistance,
-                frontLeftDistance, frontRightDistance);
+      // updateLCD("BOTH COLLISION", leftDistance, rightDistance, frontDistance,
+      //           frontLeftDistance, frontRightDistance);
       stopMotors();
       moveBackward();
-      delay(500);
+      delay(300);
       stopMotors();
     } else {
       // ALL front sensors clear and no side collisions - safe to move forward
       digitalWrite(ledPin, LOW);
       setRGBColor(0, 255, 0);  // GREEN - Path clear
 
-      updateLCD("FORWARD", leftDistance, rightDistance, frontDistance,
-                frontLeftDistance, frontRightDistance);
+      // updateLCD("FORWARD", leftDistance, rightDistance, frontDistance,
+      //           frontLeftDistance, frontRightDistance);
 
       moveForward();
     }
@@ -181,17 +171,17 @@ void autonomousNavigation() {
       // Front IR blocked - check sides to determine best turn direction
       if (frontLeftObstacle && !frontRightObstacle) {
         // Front and front-left blocked, front-right clear - turn RIGHT
-        updateLCD("TURN RIGHT", leftDistance, rightDistance, frontDistance,
-                  frontLeftDistance, frontRightDistance);
+        // updateLCD("TURN RIGHT", leftDistance, rightDistance, frontDistance,
+        //           frontLeftDistance, frontRightDistance);
         turnRight();
-        delay(400);  // Longer turn to clear both obstacles
+        delay(200);  // Longer turn to clear both obstacles
         stopMotors();
       } else if (frontRightObstacle && !frontLeftObstacle) {
         // Front and front-right blocked, front-left clear - turn LEFT
-        updateLCD("TURN LEFT", leftDistance, rightDistance, frontDistance,
-                  frontLeftDistance, frontRightDistance);
+        // updateLCD("TURN LEFT", leftDistance, rightDistance, frontDistance,
+        //           frontLeftDistance, frontRightDistance);
         turnLeft();
-        delay(400);  // Longer turn to clear both obstacles
+        delay(200);  // Longer turn to clear both obstacles
         stopMotors();
       } else if (frontLeftObstacle && frontRightObstacle) {
         // All three front sensors blocked - DEAD END! Turn 180 degrees
@@ -199,21 +189,21 @@ void autonomousNavigation() {
       } else {
         // Only front IR blocked, sides clear - turn toward clearer side
         if (frontLeftDistance > frontRightDistance) {
-          updateLCD("TURN LEFT", leftDistance, rightDistance, frontDistance,
-                    frontLeftDistance, frontRightDistance);
+          // updateLCD("TURN LEFT", leftDistance, rightDistance, frontDistance,
+          //           frontLeftDistance, frontRightDistance);
           turnLeft();
-          delay(200);
+          delay(150);
         } else {
-          updateLCD("TURN RIGHT", leftDistance, rightDistance, frontDistance,
-                    frontLeftDistance, frontRightDistance);
+          // updateLCD("TURN RIGHT", leftDistance, rightDistance, frontDistance,
+          //           frontLeftDistance, frontRightDistance);
           turnRight();
-          delay(200);
+          delay(150);
         }
       }
     } else if (frontLeftObstacle && !frontRightObstacle) {
       // Only front-left blocked - turn RIGHT to move away from obstacle
-      updateLCD("TURN RIGHT", leftDistance, rightDistance, frontDistance,
-                frontLeftDistance, frontRightDistance);
+      // updateLCD("TURN RIGHT", leftDistance, rightDistance, frontDistance,
+                // frontLeftDistance, frontRightDistance);
 
       // Turn until front-left is clear, then turn a bit more
       do {
@@ -226,12 +216,12 @@ void autonomousNavigation() {
 
       // Front-left is now clear, turn a bit more to avoid side collision
       turnRight();
-      delay(200);  // Extra turn time
+      delay(150);  // Extra turn time
       stopMotors();
     } else if (frontRightObstacle && !frontLeftObstacle) {
       // Only front-right blocked - turn LEFT to move away from obstacle
-      updateLCD("TURN LEFT", leftDistance, rightDistance, frontDistance,
-                frontLeftDistance, frontRightDistance);
+      // updateLCD("TURN LEFT", leftDistance, rightDistance, frontDistance,
+      //           frontLeftDistance, frontRightDistance);
 
       // Turn until front-right is clear, then turn a bit more
       do {
@@ -244,16 +234,16 @@ void autonomousNavigation() {
 
       // Front-right is now clear, turn a bit more to avoid side collision
       turnLeft();
-      delay(200);  // Extra turn time
+      delay(150);  // Extra turn time
       stopMotors();
     } else {
       // Both front-left and front-right blocked but front IR clear
-      updateLCD("BACK UP", leftDistance, rightDistance, frontDistance,
-                frontLeftDistance, frontRightDistance);
+      // updateLCD("BACK UP", leftDistance, rightDistance, frontDistance,
+      //           frontLeftDistance, frontRightDistance);
       moveBackward();
-      delay(300);
-      stopMotors();
       delay(200);
+      stopMotors();
+      delay(150);
     }
 
     stopMotors();

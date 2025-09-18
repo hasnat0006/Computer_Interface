@@ -1,0 +1,573 @@
+\documentclass[12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+
+\usepackage{amsmath}
+\usepackage{algorithm2e}
+\SetKwComment{Comment}{$\triangleright$\ }{}
+\SetKwProg{Fn}{Function}{:}{}
+\SetKwProg{Proc}{Procedure}{:}{}
+\SetKwFor{For}{for}{do}{endfor}
+\SetKwIF{If}{ElseIf}{Else}{if}{then}{else if}{else}{endif}
+\SetKwRepeat{Do}{do}{while}
+
+\title{\textbf{Arduino Cleaning Robot - Pseudocode}}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{System Setup}
+\Fn{\textsc{Setup}()}{
+    \textsc{InitializeSerial}(9600)\;
+    \textsc{InitializeBluetooth}(9600)\;
+    \textsc{InitializeLCD}()\;
+    \textsc{SetRGBColor}(255, 0, 255)\;
+    \For{each pin}{
+        \textsc{SetPinMode}(pin, mode)\;
+    }
+    $motorSpeed \leftarrow 80$\;
+    $obstacleThreshold \leftarrow 20$\;
+    $autoMode \leftarrow false$\;
+    $vacuumEnabled \leftarrow false$\;
+    $mopEnabled \leftarrow false$\;
+    $pumpEnabled \leftarrow false$\;
+    \textsc{StopAllMotors}()\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Main Loop}
+\Fn{\textsc{MainLoop}()}{
+    \While{true}{
+        \If{$chunkBuffer.isActive$ \textbf{and} \textsc{IsChunkTimeout}()}{
+            \textsc{ResetChunkBuffer}()\;
+        }
+        $tempCommand \leftarrow ""$\;
+        \While{\textsc{BluetoothDataAvailable}()}{
+            $c \leftarrow$ \textsc{ReadBluetoothChar}()\;
+            \If{$|tempCommand| = 0$ \textbf{and} $(c = 0$ \textbf{or} $c = 1$ \textbf{or} $c = 2)$}{
+                $chunkData \leftarrow$ \textsc{ReadChunkPacket}(c)\;
+                \If{\textsc{ProcessChunkedData}(chunkData)}{
+                    $lastIdleTime \leftarrow$ \textsc{GetCurrentTime}()\;
+                }
+                \textbf{continue}\;
+            }
+            $tempCommand \leftarrow tempCommand + c$\;
+            \textsc{Delay}(10)\;
+        }
+        \If{$|tempCommand| > 0$}{
+            \textsc{ProcessBLECommand}(tempCommand)\;
+        }
+        \If{\textbf{not} $autoMode$ \textbf{and} \textsc{GetCurrentTime}() $- lastIdleTime > 30000$}{
+            \textsc{ShowIdleState}()\;
+        }
+        \If{$autoMode$}{
+            \textsc{AutonomousNavigation}()\;
+        }
+        \textsc{Delay}(30)\;
+    }
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{BLE Command Processing}
+\Fn{\textsc{ProcessBLECommand}(command)}{
+    \If{\textsc{IsValidJson}(command)}{
+        \textsc{ProcessJsonCommand}(command)\;
+        \textbf{return}\;
+    }
+    $command \leftarrow$ \textsc{ToUpperCase}(command)\;
+    \Switch{command}{
+        \Case{"V\_ON"}{\textsc{StartVacuum}()\;}
+        \Case{"V\_OFF"}{\textsc{StopVacuum}()\;}
+        \Case{"M\_ON"}{\textsc{StartMop}()\;}
+        \Case{"M\_OFF"}{\textsc{StopMop}()\;}
+        \Case{"P\_ON"}{\textsc{StartPump}()\;}
+        \Case{"P\_OFF"}{\textsc{StopPump}()\;}
+        \Case{"AUTO"}{$autoMode \leftarrow true$\;}
+        \Case{"MANUAL"}{$autoMode \leftarrow false$\; \textsc{StopMotors}()\;}
+        \Case{"F"}{\If{\textbf{not} $autoMode$}{\textsc{MoveForward}()\;}}
+        \Case{"B"}{\If{\textbf{not} $autoMode$}{\textsc{MoveBackward}()\;}}
+        \Case{"L"}{\If{\textbf{not} $autoMode$}{\textsc{TurnLeft}()\;}}
+        \Case{"R"}{\If{\textbf{not} $autoMode$}{\textsc{TurnRight}()\;}}
+        \Case{"S"}{\textsc{StopMotors}()\;}
+    }
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Process Chunked Data}
+\Fn{\textsc{ProcessChunkedData}(dataBytes, length)}{
+    \If{length $< 3$}{\textbf{return} false\;}
+    $currentChunk \leftarrow dataBytes[0]$\;
+    $totalChunks \leftarrow dataBytes[1]$\;
+    $dataLength \leftarrow dataBytes[2]$\;
+    $commandData \leftarrow$ \textsc{ExtractBytes}(dataBytes, 3, $3 + dataLength - 1$)\;
+    \If{currentChunk $= 0$}{
+        \textsc{InitializeChunkBuffer}()\;
+        $chunkBuffer.totalChunks \leftarrow totalChunks$\;
+    }
+    \textsc{AppendToBuffer}(chunkBuffer.data, commandData)\;
+    $chunkBuffer.currentChunk \leftarrow chunkBuffer.currentChunk + 1$\;
+    \If{chunkBuffer.currentChunk $\geq$ chunkBuffer.totalChunks}{
+        $completeCommand \leftarrow$ \textsc{ReconstructFromBuffer}(chunkBuffer)\;
+        \textsc{ProcessBLECommand}(completeCommand)\;
+        \textsc{ResetChunkBuffer}()\;
+        \textbf{return} true\;
+    }
+    \textbf{return} false\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Stop Motors}
+\Fn{\textsc{StopMotors}()}{
+    \textsc{SetDigitalPin}($in1$, LOW)\;
+    \textsc{SetDigitalPin}($in2$, LOW)\;
+    \textsc{SetDigitalPin}($in3$, LOW)\;
+    \textsc{SetDigitalPin}($in4$, LOW)\;
+    \textsc{SetPWMPin}($enA$, 0)\;
+    \textsc{SetPWMPin}($enB$, 0)\;
+    \If{vacuumEnabled}{\textsc{SetPWMPin}($enC$, vacuumSpeed)\;}
+    \If{mopEnabled}{\textsc{SetPWMPin}($enD$, mopSpeed)\;}
+    \If{pumpEnabled}{\textsc{SetPWMPin}($enE$, pumpSpeed)\;}
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Move Forward}
+\Fn{\textsc{MoveForward}()}{
+    \If{vacuumEnabled}{\textsc{SetPWMPin}($enC$, $vacuumSpeed \times 0.8$)\;}
+    \If{mopEnabled}{\textsc{SetPWMPin}($enD$, $mopSpeed \times 0.7$)\;}
+    \If{pumpEnabled}{\textsc{SetPWMPin}($enE$, $pumpSpeed \times 0.7$)\;}
+    \textsc{SetPWMPin}($enA$, motorSpeed)\;
+    \textsc{SetPWMPin}($enB$, motorSpeed)\;
+    \textsc{SetDigitalPin}($in1$, LOW)\;
+    \textsc{SetDigitalPin}($in2$, HIGH)\;
+    \textsc{SetDigitalPin}($in3$, LOW)\;
+    \textsc{SetDigitalPin}($in4$, HIGH)\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Move Backward}
+\Fn{\textsc{MoveBackward}()}{
+    \If{vacuumEnabled}{\textsc{SetPWMPin}($enC$, $vacuumSpeed \times 0.8$)\;}
+    \If{mopEnabled}{\textsc{SetPWMPin}($enD$, $mopSpeed \times 0.7$)\;}
+    \If{pumpEnabled}{\textsc{SetPWMPin}($enE$, $pumpSpeed \times 0.7$)\;}
+    \textsc{SetPWMPin}($enA$, motorSpeed)\;
+    \textsc{SetPWMPin}($enB$, motorSpeed)\;
+    \textsc{SetDigitalPin}($in1$, HIGH)\;
+    \textsc{SetDigitalPin}($in2$, LOW)\;
+    \textsc{SetDigitalPin}($in3$, HIGH)\;
+    \textsc{SetDigitalPin}($in4$, LOW)\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Turn Left}
+\Fn{\textsc{TurnLeft}()}{
+    \If{vacuumEnabled}{\textsc{SetPWMPin}($enC$, $vacuumSpeed \times 0.7$)\;}
+    \If{mopEnabled}{\textsc{SetPWMPin}($enD$, $mopSpeed \times 0.6$)\;}
+    \If{pumpEnabled}{\textsc{SetPWMPin}($enE$, $pumpSpeed \times 0.6$)\;}
+    \textsc{SetPWMPin}($enA$, $motorSpeed \times 1.15$)\;
+    \textsc{SetPWMPin}($enB$, $motorSpeed \times 1.15$)\;
+    \textsc{SetDigitalPin}($in1$, HIGH)\;
+    \textsc{SetDigitalPin}($in2$, LOW)\;
+    \textsc{SetDigitalPin}($in3$, LOW)\;
+    \textsc{SetDigitalPin}($in4$, HIGH)\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Turn Right}
+\Fn{\textsc{TurnRight}()}{
+    \If{vacuumEnabled}{\textsc{SetPWMPin}($enC$, $vacuumSpeed \times 0.7$)\;}
+    \If{mopEnabled}{\textsc{SetPWMPin}($enD$, $mopSpeed \times 0.6$)\;}
+    \If{pumpEnabled}{\textsc{SetPWMPin}($enE$, $pumpSpeed \times 0.6$)\;}
+    \textsc{SetPWMPin}($enA$, $motorSpeed \times 1.15$)\;
+    \textsc{SetPWMPin}($enB$, $motorSpeed \times 1.15$)\;
+    \textsc{SetDigitalPin}($in1$, LOW)\;
+    \textsc{SetDigitalPin}($in2$, HIGH)\;
+    \textsc{SetDigitalPin}($in3$, HIGH)\;
+    \textsc{SetDigitalPin}($in4$, LOW)\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Turn 180 Degrees}
+\Fn{\textsc{Turn180Degrees}()}{
+    \textsc{UpdateLCD}("TURN AROUND")\;
+    \textsc{SetRGBColor}(255, 0, 255)\;
+    \textsc{TurnRight}()\;
+    \textsc{Delay}(2000)\;
+    \textsc{StopMotors}()\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Start Vacuum}
+\Fn{\textsc{StartVacuum}()}{
+    $vacuumEnabled \leftarrow true$\;
+    \textsc{SetDigitalPin}($in5$, LOW)\;
+    \textsc{SetDigitalPin}($in6$, HIGH)\;
+    \textsc{SetPWMPin}($enC$, vacuumSpeed)\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Stop Vacuum}
+\Fn{\textsc{StopVacuum}()}{
+    $vacuumEnabled \leftarrow false$\;
+    \textsc{SetPWMPin}($enC$, 0)\;
+    \textsc{SetDigitalPin}($in5$, LOW)\;
+    \textsc{SetDigitalPin}($in6$, LOW)\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Start Mop}
+\Fn{\textsc{StartMop}()}{
+    $mopEnabled \leftarrow true$\;
+    \textsc{SetDigitalPin}($in7$, LOW)\;
+    \textsc{SetDigitalPin}($in8$, HIGH)\;
+    \textsc{SetPWMPin}($enD$, mopSpeed)\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Stop Mop}
+\Fn{\textsc{StopMop}()}{
+    $mopEnabled \leftarrow false$\;
+    \textsc{SetPWMPin}($enD$, 0)\;
+    \textsc{SetDigitalPin}($in7$, LOW)\;
+    \textsc{SetDigitalPin}($in8$, LOW)\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Start Pump}
+\Fn{\textsc{StartPump}()}{
+    $pumpEnabled \leftarrow true$\;
+    \textsc{SetDigitalPin}($in9$, LOW)\;
+    \textsc{SetDigitalPin}($in10$, HIGH)\;
+    \textsc{SetPWMPin}($enE$, pumpSpeed)\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Stop Pump}
+\Fn{\textsc{StopPump}()}{
+    $pumpEnabled \leftarrow false$\;
+    \textsc{SetPWMPin}($enE$, 0)\;
+    \textsc{SetDigitalPin}($in9$, LOW)\;
+    \textsc{SetDigitalPin}($in10$, LOW)\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Get Distance}
+\Fn{\textsc{GetDistance}(triggerPin, echoPin)}{
+    \textsc{SetDigitalPin}(triggerPin, LOW)\;
+    \textsc{DelayMicroseconds}(2)\;
+    \textsc{SetDigitalPin}(triggerPin, HIGH)\;
+    \textsc{DelayMicroseconds}(10)\;
+    \textsc{SetDigitalPin}(triggerPin, LOW)\;
+    $duration \leftarrow$ \textsc{PulseIn}(echoPin, HIGH)\;
+    $distance \leftarrow \frac{duration \times 0.034}{2}$\;
+    \textbf{return} distance\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Get Front Distance}
+\Fn{\textsc{GetFrontDistance}()}{
+    \textbf{return} \textsc{GetDistance}(frontTrigPin, frontEchoPin)\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Detect Front Obstacle}
+\Fn{\textsc{GetFrontIRObstacle}()}{
+    $distance \leftarrow$ \textsc{GetFrontDistance}()\;
+    \textbf{return} $(distance < obstacleThreshold)$\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Autonomous Navigation - Part 1}
+\Fn{\textsc{AutonomousNavigation}()}{
+    \textbf{static} $leftDistance, rightDistance, frontDistance, frontLeftDistance, frontRightDistance \leftarrow 0$\;
+    $frontObstacle \leftarrow$ \textsc{GetFrontIRObstacle}()\;
+    $frontDistance \leftarrow$ \textsc{GetFrontDistance}()\;
+    $frontLeftDistance \leftarrow$ \textsc{GetDistance}(frontLeftTrigPin, frontLeftEchoPin)\;
+    $frontRightDistance \leftarrow$ \textsc{GetDistance}(frontRightTrigPin, frontRightEchoPin)\;
+    $frontLeftObstacle \leftarrow (frontLeftDistance < obstacleThreshold)$\;
+    $frontRightObstacle \leftarrow (frontRightDistance < obstacleThreshold)$\;
+    $allFrontClear \leftarrow \neg(frontObstacle \lor frontLeftObstacle \lor frontRightObstacle)$\;
+    
+    \textbf{static} $sensorCheckCounter \leftarrow 0$\;
+    $sensorCheckCounter \leftarrow sensorCheckCounter + 1$\;
+    \If{$sensorCheckCounter \geq 5$}{
+        $leftDistance \leftarrow$ \textsc{GetDistance}(leftTrigPin, leftEchoPin)\;
+        $rightDistance \leftarrow$ \textsc{GetDistance}(rightTrigPin, rightEchoPin)\;
+        $sensorCheckCounter \leftarrow 0$\;
+    }
+    
+    \If{allFrontClear}{
+        \textsc{HandleClearPath}(leftDistance, rightDistance)\;
+    }
+    \Else{
+        \textsc{HandleObstacleDetection}(frontObstacle, frontLeftObstacle, frontRightObstacle, frontLeftDistance, frontRightDistance)\;
+    }
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Handle Clear Path}
+\Fn{\textsc{HandleClearPath}(leftDistance, rightDistance)}{
+    $leftCollision \leftarrow (leftDistance \leq 5)$\;
+    $rightCollision \leftarrow (rightDistance \leq 5)$\;
+    \If{$leftCollision \land \neg rightCollision$}{
+        \textsc{SetRGBColor}(255, 255, 0)\;
+        \textsc{StopMotors}()\;
+        \textsc{TurnRight}()\;
+        \textsc{Delay}(300)\;
+        \textsc{StopMotors}()\;
+    }
+    \ElseIf{$rightCollision \land \neg leftCollision$}{
+        \textsc{SetRGBColor}(255, 255, 0)\;
+        \textsc{StopMotors}()\;
+        \textsc{TurnLeft}()\;
+        \textsc{Delay}(300)\;
+        \textsc{StopMotors}()\;
+    }
+    \ElseIf{$leftCollision \land rightCollision$}{
+        \textsc{SetRGBColor}(255, 0, 255)\;
+        \textsc{StopMotors}()\;
+        \textsc{MoveBackward}()\;
+        \textsc{Delay}(500)\;
+        \textsc{StopMotors}()\;
+    }
+    \Else{
+        \textsc{SetRGBColor}(0, 255, 0)\;
+        \textsc{MoveForward}()\;
+    }
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Handle Obstacle Detection}
+\Fn{\textsc{HandleObstacleDetection}(frontObstacle, frontLeftObstacle, frontRightObstacle, frontLeftDistance, frontRightDistance)}{
+    \textsc{SetRGBColor}(255, 0, 0)\;
+    \textsc{StopMotors}()\;
+    \If{frontObstacle}{
+        \If{$frontLeftObstacle \land \neg frontRightObstacle$}{
+            \textsc{TurnRight}()\;
+            \textsc{Delay}(400)\;
+            \textsc{StopMotors}()\;
+        }
+        \ElseIf{$frontRightObstacle \land \neg frontLeftObstacle$}{
+            \textsc{TurnLeft}()\;
+            \textsc{Delay}(400)\;
+            \textsc{StopMotors}()\;
+        }
+        \ElseIf{$frontLeftObstacle \land frontRightObstacle$}{
+            \textsc{Turn180Degrees}()\;
+        }
+        \Else{
+            \If{$frontLeftDistance > frontRightDistance$}{
+                \textsc{TurnLeft}()\;
+            }
+            \Else{
+                \textsc{TurnRight}()\;
+            }
+            \textsc{Delay}(300)\;
+            \textsc{StopMotors}()\;
+        }
+    }
+    \ElseIf{frontLeftObstacle}{
+        \textsc{TurnRight}()\;
+        \textsc{Delay}(300)\;
+        \textsc{StopMotors}()\;
+    }
+    \ElseIf{frontRightObstacle}{
+        \textsc{TurnLeft}()\;
+        \textsc{Delay}(300)\;
+        \textsc{StopMotors}()\;
+    }
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Avoid Obstacle}
+\Fn{\textsc{AvoidObstacle}()}{
+    \textsc{StopMotors}()\;
+    \textsc{Delay}(500)\;
+    $leftDistance \leftarrow$ \textsc{GetDistance}(leftTrigPin, leftEchoPin)\;
+    $rightDistance \leftarrow$ \textsc{GetDistance}(rightTrigPin, rightEchoPin)\;
+    $frontDistance \leftarrow$ \textsc{GetFrontDistance}()\;
+    $frontLeftDistance \leftarrow$ \textsc{GetDistance}(frontLeftTrigPin, frontLeftEchoPin)\;
+    $frontRightDistance \leftarrow$ \textsc{GetDistance}(frontRightTrigPin, frontRightEchoPin)\;
+    
+    \If{$(leftDistance > obstacleThreshold) \land (frontLeftDistance > obstacleThreshold)$}{
+        \textsc{TurnLeft}()\;
+        \textsc{Delay}(500)\;
+        \textsc{StopMotors}()\;
+    }
+    \ElseIf{$(rightDistance > obstacleThreshold) \land (frontRightDistance > obstacleThreshold)$}{
+        \textsc{TurnRight}()\;
+        \textsc{Delay}(500)\;
+        \textsc{StopMotors}()\;
+    }
+    \ElseIf{$(frontLeftDistance > frontRightDistance) \land (frontLeftDistance > obstacleThreshold)$}{
+        \textsc{TurnLeft}()\;
+        \textsc{Delay}(500)\;
+        \textsc{StopMotors}()\;
+    }
+    \ElseIf{$(frontRightDistance > frontLeftDistance) \land (frontRightDistance > obstacleThreshold)$}{
+        \textsc{TurnRight}()\;
+        \textsc{Delay}(500)\;
+        \textsc{StopMotors}()\;
+    }
+    \Else{
+        \textsc{MoveBackward}()\;
+        \textsc{Delay}(500)\;
+        \textsc{StopMotors}()\;
+        \textsc{TurnRight}()\;
+        \textsc{Delay}(2000)\;
+        \textsc{StopMotors}()\;
+    }
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Set RGB Color}
+\Fn{\textsc{SetRGBColor}(red, green, blue)}{
+    \textsc{SetPWMPin}(rgbRedPin, red)\;
+    \textsc{SetPWMPin}(rgbGreenPin, green)\;
+    \textsc{SetPWMPin}(rgbBluePin, blue)\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Show System State}
+\Fn{\textsc{ShowSystemState}()}{
+    $anyCleaningActive \leftarrow (vacuumEnabled \lor mopEnabled \lor pumpEnabled)$\;
+    \If{anyCleaningActive}{
+        \If{autoMode}{
+            \textsc{SetRGBColor}(0, 255, 255)\;
+        }
+        \Else{
+            \textsc{SetRGBColor}(0, 0, 255)\;
+        }
+    }
+    \Else{
+        \If{autoMode}{
+            \textsc{SetRGBColor}(0, 255, 0)\;
+        }
+        \Else{
+            \textsc{SetRGBColor}(255, 255, 255)\;
+        }
+    }
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Show Idle State}
+\Fn{\textsc{ShowIdleState}()}{
+    \For{$i \leftarrow 0$ \textbf{to} 10}{
+        $brightness \leftarrow i \times 25$\;
+        \textsc{SetRGBColor}(0, 0, brightness)\;
+        \textsc{Delay}(100)\;
+    }
+    \For{$i \leftarrow 10$ \textbf{down to} 0}{
+        $brightness \leftarrow i \times 25$\;
+        \textsc{SetRGBColor}(0, 0, brightness)\;
+        \textsc{Delay}(100)\;
+    }
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Initialize LCD}
+\Fn{\textsc{InitializeLCD}()}{
+    \textsc{InitializeI2CLCD}(0x27)\;
+    \textsc{SetLCDDimensions}(16, 2)\;
+    \textsc{TurnOnLCDBacklight}()\;
+    \textsc{ClearLCDScreen}()\;
+}
+\end{algorithm}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\DontPrintSemicolon
+\caption{Update LCD}
+\Fn{\textsc{UpdateLCD}(status, leftDist, rightDist, frontDist)}{
+    \textsc{ClearLCDScreen}()\;
+    $line1 \leftarrow status + " F:" + \textsc{ToString}(frontDist)$\;
+    \textsc{DisplayLCDText}(line1, 1)\;
+    $line2 \leftarrow "L:" + \textsc{ToString}(leftDist) + " R:" + \textsc{ToString}(rightDist)$\;
+    \textsc{DisplayLCDText}(line2, 2)\;
+}
+\end{algorithm}
+
+\end{document}

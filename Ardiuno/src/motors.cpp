@@ -24,21 +24,22 @@ void stopMotors() {
   }
 }
 
+
 // Motor control functions with power management
 void moveForward() {
   // Reduce cleaning motor speeds when driving to save power
   if (vacuumEnabled) {
-    analogWrite(enC, vacuumSpeed * 0.8);  // Reduce vacuum speed to 80%
+    analogWrite(enC, vacuumSpeed);  // Reduce vacuum speed to 80%
   }
   if (mopEnabled) {
-    analogWrite(enD, mopSpeed * 0.7);  // Reduce mop speed to 70%
+    analogWrite(enD, mopSpeed);  // Reduce mop speed to 70%
   }
   if (pumpEnabled) {
-    analogWrite(enE, pumpSpeed * 0.7);  // Reduce pump speed to 70%
+    analogWrite(enE, pumpSpeed);  // Reduce pump speed to 70%
   }
 
-  analogWrite(enA, motorSpeed);
-  analogWrite(enB, motorSpeed);
+  analogWrite(enA, motorSpeed / 1.1);
+  analogWrite(enB, motorSpeed / 1.1);
   digitalWrite(in1, LOW);
   digitalWrite(in2, HIGH);
   digitalWrite(in3, LOW);
@@ -48,17 +49,17 @@ void moveForward() {
 void moveBackward() {
   // Reduce cleaning motor speeds when driving to save power
   if (vacuumEnabled) {
-    analogWrite(enC, vacuumSpeed * 0.8);  // Reduce vacuum speed to 80%
+    analogWrite(enC, vacuumSpeed);  // Reduce vacuum speed to 80%
   }
   if (mopEnabled) {
-    analogWrite(enD, mopSpeed * 0.7);  // Reduce mop speed to 70%
+    analogWrite(enD, mopSpeed);  // Reduce mop speed to 70%
   }
   if (pumpEnabled) {
-    analogWrite(enE, pumpSpeed * 0.7);  // Reduce pump speed to 70%
+    analogWrite(enE, pumpSpeed);  // Reduce pump speed to 70%
   }
 
-  analogWrite(enA, motorSpeed);
-  analogWrite(enB, motorSpeed);
+  analogWrite(enA, motorSpeed / 1.1);
+  analogWrite(enB, motorSpeed / 1.1);
   digitalWrite(in1, HIGH);
   digitalWrite(in2, LOW);
   digitalWrite(in3, HIGH);
@@ -68,17 +69,17 @@ void moveBackward() {
 void turnLeft() {
   // Reduce cleaning motor speeds when turning to save power
   if (vacuumEnabled) {
-    analogWrite(enC, vacuumSpeed * 0.7);  // Reduce vacuum speed to 70%
+    analogWrite(enC, vacuumSpeed);  // Reduce vacuum speed to 70%
   }
   if (mopEnabled) {
-    analogWrite(enD, mopSpeed * 0.6);  // Reduce mop speed to 60%
+    analogWrite(enD, mopSpeed);  // Reduce mop speed to 60%
   }
   if (pumpEnabled) {
-    analogWrite(enE, pumpSpeed * 0.6);  // Reduce pump speed to 60%
+    analogWrite(enE, pumpSpeed);  // Reduce pump speed to 60%
   }
 
-  analogWrite(enA, motorSpeed * 1.15);
-  analogWrite(enB, motorSpeed * 1.15);
+  analogWrite(enA, motorSpeed * 1.7);
+  analogWrite(enB, motorSpeed * 1.7);
   // SWAPPED: Left motor backward, right motor forward (to turn left)
   digitalWrite(in1, HIGH);
   digitalWrite(in2, LOW);
@@ -89,17 +90,17 @@ void turnLeft() {
 void turnRight() {
   // Reduce cleaning motor speeds when turning to save power
   if (vacuumEnabled) {
-    analogWrite(enC, vacuumSpeed * 0.7);  // Reduce vacuum speed to 70%
+    analogWrite(enC, vacuumSpeed);  // Reduce vacuum speed to 70%
   }
   if (mopEnabled) {
-    analogWrite(enD, mopSpeed * 0.6);  // Reduce mop speed to 60%
+    analogWrite(enD, mopSpeed);  // Reduce mop speed to 60%
   }
   if (pumpEnabled) {
-    analogWrite(enE, pumpSpeed * 0.6);  // Reduce pump speed to 60%
+    analogWrite(enE, pumpSpeed);  // Reduce pump speed to 60%
   }
 
-  analogWrite(enA, motorSpeed * 1.15);
-  analogWrite(enB, motorSpeed * 1.15);
+  analogWrite(enA, motorSpeed * 1.7);
+  analogWrite(enB, motorSpeed * 1.7);
   // SWAPPED: Left motor forward, right motor backward (to turn right)
   digitalWrite(in1, LOW);
   digitalWrite(in2, HIGH);
@@ -189,7 +190,7 @@ void stopCleaningMotors() {
 
 // Dedicated 180-degree turn function
 void turn180Degrees() {
-  updateLCD("TURNING 180", 0, 0, 0, 0, 0);
+  
 
   // Back up first to create turning space
   moveBackward();
@@ -210,7 +211,7 @@ void turn180Degrees() {
   turnRight();  // Turn right for 180 degrees
 
   // Turn for a longer time to ensure full 180 degrees
-  delay(3500);  // 3.5 seconds for more reliable 180-degree turn
+  delay(2500);  // 3.5 seconds for more reliable 180-degree turn
 
   stopMotors();
   delay(300);  // Brief pause after turn
@@ -223,7 +224,5 @@ void turn180Degrees() {
     delay(150);
   }
   setRGBColor(0, 255, 0);  // GREEN - Turn completed
-  updateLCD("TURN DONE", 0, 0, 0, 0, 0);
-  delay(500);         // Show completion status
   showSystemState();  // Return to normal system state
 }
